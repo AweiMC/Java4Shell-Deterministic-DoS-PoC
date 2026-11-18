@@ -1,0 +1,10 @@
+# build output
+out/
+sources.txt
+
+# run logs (evidence/ holds the curated forensics)
+logs/
+
+# local runtime dirs
+.local/
+runtime/

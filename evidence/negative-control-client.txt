@@ -1,0 +1,6 @@
+[client] < PONG java=17.0.20 triggerLen=2796161 probe=none ready=true
+[client] WARNING: server layer-1 self-check shows NO spill - runtime patched or intrinsics off; attack will not work
+[client] building trigger len=2796161 (2796160 'A' + '=') and firing...
+[client] < SURVIVED shots=2
+[client] SURVIVED - no corruption observed this run (negative control should match; if miss, tune -Xmx/grid/region and retry)
+[run-client] finished (exit code 2: 0=TARGET DOWN 1=hit-alive 2=survived 3=error)

@@ -1,0 +1,8 @@
+# shell scripts must stay LF or bash chokes on CRLF
+*.sh text eol=lf
+# batch files must stay CRLF
+*.bat text eol=crlf
+# normalize text files in repo, checkout native
+*.md text
+*.java text
+*.log text
