@@ -21,9 +21,9 @@ CVE-2026-114938 的官方参考 PoC（[Pwned-test/cve-2026-114938-java17-PoC](ht
 
 ## 演示
 
-[![攻击机制动画](assets/demo-poster.png)](assets/demo-mechanism.mp4)
+[![攻击机制动画（中文版）](assets/demo-poster.zh-CN.png)](assets/demo-mechanism.zh-CN.mp4)
 
-▶ **46 秒机制动画**（[assets/demo-mechanism.mp4](assets/demo-mechanism.mp4)）：成洞 → 触发串投递 → humongous dst 填洞 → 64B 定值写跨 region 边界 32B → 哨兵 length 被污染（`0xA6699AA6`）→ SIGSEGV + hs_err → 判决。所有数字均来自 `evidence/` 中的真实实测。交互版：[docs/attack-visualization.html](docs/attack-visualization.html)（浏览器打开，空格 = 暂停）。
+▶ **46 秒机制动画**（中文版：[assets/demo-mechanism.zh-CN.mp4](assets/demo-mechanism.zh-CN.mp4) · English: [assets/demo-mechanism.mp4](assets/demo-mechanism.mp4)）：成洞 → 触发串投递 → humongous dst 填洞 → 64B 定值写跨 region 边界 32B → 哨兵 length 被污染（`0xA6699AA6`）→ SIGSEGV + hs_err → 判决。所有数字均来自 `evidence/` 中的真实实测（日志行保留英文原样）。交互版：[docs/attack-visualization.zh-CN.html](docs/attack-visualization.zh-CN.html)（中文）· [docs/attack-visualization.html](docs/attack-visualization.html)（EN）—— 浏览器打开，空格 = 暂停。
 
 ## 环境要求
 

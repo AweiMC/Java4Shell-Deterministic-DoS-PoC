@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<!--
+  J4Shell-Deterministic-DoS 攻击机制动画·中文版（CVE-2026-114938 衍生）。
+  自包含、无依赖。浏览器打开即可播放/录制，1280x720。
+  所有数字均来自 evidence/ 中的真实实测；日志行保留英文原样（真实取证内容）。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>J4Shell-Deterministic-DoS — 攻击机制动画（中文）</title>
+<style>
+  html,body{margin:0;height:100%;background:#010409;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  #wrap{width:1280px;height:720px;position:relative;background:#0d1117;border-radius:8px;overflow:hidden;
+        box-shadow:0 0 60px rgba(88,166,255,.08)}
+  canvas{display:block}
+  #bar{position:absolute;left:0;right:0;bottom:0;height:44px;background:#010409;display:flex;align-items:center;
+       gap:14px;padding:0 16px;box-sizing:border-box;border-top:1px solid #21262d}
+  #bar button{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:6px 18px;
+       font:600 13px Consolas,"Microsoft YaHei",monospace;cursor:pointer}
+  #bar button:hover{background:#30363d}
+  #track{flex:1;height:6px;background:#21262d;border-radius:3px;position:relative;cursor:pointer}
+  #fill{position:absolute;left:0;top:0;bottom:0;background:#58a6ff;border-radius:3px;width:0%}
+  #tlabel{font:12px Consolas,monospace;color:#8b949e;min-width:52px;text-align:right}
+  #hint{font:11px Consolas,"Microsoft YaHei",monospace;color:#484f58}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cv" width="1280" height="676"></canvas>
+  <div id="bar">
+    <button id="btn">重播</button>
+    <div id="track"><div id="fill"></div></div>
+    <div id="tlabel">0.0s</div>
+    <div id="hint">1280x720 &middot; 录制此窗口</div>
+  </div>
+</div>
+<script>
+"use strict";
+const cv=document.getElementById("cv"),g=cv.getContext("2d");
+const W=1280,H=676;
+const MONO='"Consolas","Cascadia Mono","Microsoft YaHei",monospace';
+const C={bg:"#0d1117",panel:"#161b22",line:"#21262d",txt:"#e6edf3",dim:"#8b949e",faint:"#484f58",
+         red:"#f85149",green:"#3fb950",blue:"#58a6ff",yellow:"#d29922",purple:"#bc8cff",orange:"#f0883e"};
+const DUR=46; // total seconds
+
+// ---------- helpers ----------
+function bg(){g.fillStyle=C.bg;g.fillRect(0,0,W,H);}
+function panel(x,y,w,h,r){g.fillStyle=C.panel;rr(x,y,w,h,r||10);g.fill();g.strokeStyle=C.line;g.lineWidth=1;rr(x,y,w,h,r||10);g.stroke();}
+function rr(x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();}
+function txt(s,x,y,size,color,weight,align){g.fillStyle=color||C.txt;g.font=(weight||400)+" "+size+"px "+MONO;g.textAlign=align||"left";g.textBaseline="alphabetic";g.fillText(s,x,y);}
+function clip(a,b,x){return Math.max(0,Math.min(1,(x-a)/(b-a)));}
+function ease(x){return x<.5?2*x*x:1-Math.pow(-2*x+2,2)/2;}
+function fade(s,e,x){const a=clip(s,s+.4,x),b=1-clip(e-.4,e,x);return Math.min(a,b);}
+function flash(x,period,phase){const p=(x/period+(phase||0))%1;return p<.15?1-p/.15:0;}
+
+// ---------- scene 1: title (0-3.5) ----------
+function s1(x){
+  const a=fade(.2,3.3,x);
+  g.globalAlpha=a;
+  txt("J4Shell-Deterministic-DoS",W/2,268,44,C.txt,700,"center");
+  txt("CVE-2026-114938（Java4Shell）衍生 \u2014 单参双 Decode + G1 humongous 几何",W/2,318,17,C.dim,400,"center");
+  g.strokeStyle=C.red;g.lineWidth=2;
+  g.beginPath();g.moveTo(W/2-260,346);g.lineTo(W/2+260,346);g.stroke();
+  txt("确定性 DoS \u00b7 PoC \u00b7 仅限本地实验复现",W/2,384,15,C.faint,400,"center");
+  g.globalAlpha=1;
+}
+
+// ---------- scene 2: G1 heap + eager reclaim hole (3.5-11) ----------
+const RG={x:120,y:140,w:1040,h:210,cols:26,rows:3};
+function s2(x){
+  const a=fade(3.6,10.7,x);g.globalAlpha=a;
+  txt("步骤 1 \u2014 受害端布防：G1 堆，region=1MB，eager-reclaim 打开空洞",120,110,20,C.txt,600);
+  // region map: 78 cells; 2 of them are the future hole
+  const cw=RG.w/RG.cols,ch=RG.h/RG.rows;
+  const holeA=52,holeB=53; // hole cells
+  for(let i=0;i<RG.cols*RG.rows;i++){
+    const cx=RG.x+(i%RG.cols)*cw,cy=RG.y+Math.floor(i/RG.cols)*ch;
+    let col="#1c2430",label="";
+    if(i%3===2){col="#243447";label="F";}          // filler humongous (alive)
+    if(i%13===5){col="#1f3a2e";label="R";}          // sentinel row (1 region + filler)
+    const holeOpen=clip(6.2,7.2,x);
+    if(i===holeA||i===holeB){
+      if(holeOpen>0){col="#2d1a1e";label="";}
+      else{col="#243447";label="F";}
+    }
+    g.fillStyle=col;g.fillRect(cx+1,cy+1,cw-2,ch-2);
+    if(label)txt(label,cx+cw/2,cy+ch/2+5,12,C.faint,400,"center");
+    if(holeOpen>0&&(i===holeA||i===holeB)){
+      g.strokeStyle=C.red;g.lineWidth=2;g.globalAlpha=a*(.55+.45*Math.sin(x*6));
+      g.strokeRect(cx+1,cy+1,cw-2,ch-2);g.globalAlpha=a;
+    }
+  }
+  // annotations
+  const an=clip(4.6,5.2,x);
+  g.globalAlpha=a*an;
+  txt("F = filler humongous（300MB 网格）",RG.x,RG.y+RG.h+34,13,C.dim);
+  txt("R = 哨兵行（1 region + filler）",RG.x,RG.y+RG.h+56,13,C.dim);
+  const ha=clip(6.8,7.4,x);g.globalAlpha=a*ha;
+  g.strokeStyle=C.red;g.beginPath();
+  g.moveTo(RG.x+(52%RG.cols)*cw+30,RG.y+Math.floor(52/RG.cols)*ch+ch/2);
+  g.lineTo(940,RG.y+Math.floor(52/RG.cols)*ch+ch/2);g.stroke();
+  txt("young GC 回收 2 个相邻 region \u2192 成洞",940,RG.y+Math.floor(52/RG.cols)*ch+ch/2+5,14,C.red,600);
+  g.globalAlpha=1;
+}
+
+// ---------- scene 3: network delivery (11-17) ----------
+function s3(x){
+  const a=fade(11.1,16.7,x);g.globalAlpha=a;
+  txt("步骤 2 \u2014 客户端经 TCP 投递触发串（实验环境：127.0.0.1）",120,110,20,C.txt,600);
+  // client box
+  panel(120,170,240,120);txt("客户端",130,205,16,C.blue,600);
+  txt("构造触发串",130,235,13,C.dim);
+  txt("len=2,796,161",130,258,13,C.txt,600);
+  txt("(2,796,160 \u00d7 'A' + '=')",130,278,13,C.txt);
+  // server box
+  panel(920,170,240,120);txt("受害服务端",930,205,16,C.green,600);
+  txt("JDK 17.0.20 + G1",930,235,13,C.dim);
+  txt("热路径: decode(byte[])",930,258,13,C.txt,600);
+  txt("C2 编译 \u00b7 intrinsic 开启",930,278,13,C.txt);
+  // packet
+  const p=clip(12.3,15.2,ease(x));
+  const px=360+p*(560-0),py=230+Math.sin(p*6)*8;
+  g.fillStyle=C.blue;rr(px,py-16,110,32,6);g.fill();
+  txt("2.8 MB 载荷",px+55,py+5,12,"#0d1117",700,"center");
+  g.strokeStyle=C.blue;g.globalAlpha=a*.5;g.setLineDash([6,6]);
+  g.beginPath();g.moveTo(370,230);g.lineTo(910,230);g.stroke();g.setLineDash([]);g.globalAlpha=a;
+  // key label
+  const ka=clip(13.5,14.1,x);g.globalAlpha=a*ka;
+  txt("真实应用实际使用的入口 \u2014 HTTP Basic 头、令牌、上传字段",
+      W/2,340,15,C.dim,400,"center");
+  txt("不用双参 decode \u2014 射击 API 仅 decode(byte[])",
+      W/2,372,16,C.yellow,700,"center");
+  g.globalAlpha=1;
+}
+
+// ---------- scene 4: humongous dst fills hole + 64B stores (17-27) ----------
+function s4(x){
+  const a=fade(17.1,26.7,x);g.globalAlpha=a;
+  txt("步骤 3 \u2014 dst（2,097,122 B）是 humongous 对象：恰好填进空洞",120,110,20,C.txt,600);
+  // two regions side by side, zoomed
+  const rx=220,ry=150,rw=400,rh=150,gap=14;
+  const drop=clip(17.6,18.6,ease(x));
+  // region 1
+  g.fillStyle="#1f3a2e";g.fillRect(rx,ry,rw,rh);
+  g.strokeStyle=C.green;g.strokeRect(rx,ry,rw,rh);
+  txt("region #k（1MB）",rx+10,ry+22,13,C.green);
+  // region 2
+  g.fillStyle="#1f3a2e";g.fillRect(rx+rw+gap,ry,rw,rh);
+  g.strokeStyle=C.green;g.strokeRect(rx+rw+gap,ry,rw,rh);
+  txt("region #k+1（1MB）",rx+rw+gap+10,ry+22,13,C.green);
+  // dst object inside
+  const dw=(rw*2+gap)*drop;
+  g.fillStyle="rgba(88,166,255,.25)";g.fillRect(rx,ry,dw,rh);
+  g.strokeStyle=C.blue;g.strokeRect(rx,ry,Math.max(dw,2),rh);
+  txt("dst = 2,097,122 B \u00b7 距 region 末尾差 32 B",rx+12,ry+rh-14,14,C.blue,600);
+  // marching stores
+  const stores=clip(19.2,24.5,x);
+  const total=64, done=Math.floor(stores*total);
+  for(let i=0;i<done;i++){
+    const sx=rx+8+(i%16)*48,sy=ry+48+Math.floor(i/16)*30;
+    g.fillStyle="rgba(248,81,73,.85)";g.fillRect(sx,sy,42,22);
+    if(i%4===0)txt("64B",sx+21,sy+16,11,"#0d1117",700,"center");
+  }
+  // the crossing store
+  if(done>0){
+    const last=done-1, sx=rx+8+(last%16)*48, sy=ry+48+Math.floor(last/16)*30;
+    g.strokeStyle=C.red;g.lineWidth=2.5;
+    g.globalAlpha=a*(.5+.5*Math.sin(x*7));g.strokeRect(sx-3,sy-3,48,28);g.globalAlpha=a;
+    if(last===total-1){
+      const ca=clip(23.8,24.4,x);g.globalAlpha=a*ca;
+      g.strokeStyle=C.red;g.beginPath();
+      g.moveTo(rx+rw,ry+rh/2);g.lineTo(rx+rw+gap,ry+rh/2);g.stroke();
+      txt("最后一次写跨界 \u2192 侵入下一 region 32 B",rx+rw+gap/2,ry+rh+28,14,C.red,600,"center");
+    }
+  }
+  // right-side facts
+  panel(880,150,300,250);
+  const fa=clip(18.4,19,x);g.globalAlpha=a*fa;
+  txt("为什么是确定性的",894,178,15,C.yellow,700);
+  txt("humongous 恒 region 对齐",894,206,13,C.dim);
+  txt("\u2192 地址算术精确",894,226,13,C.dim);
+  txt("固定 64 B 向量写",894,254,13,C.dim);
+  txt("\u2192 尾部必跨 32 B",894,274,13,C.dim);
+  txt("eager-reclaim 按地址序成洞",894,302,13,C.dim);
+  txt("\u2192 dst 落进空洞",894,322,13,C.dim);
+  txt("没有布局抽奖",894,350,13,C.green,700);
+  txt("实测 5/5 命中，\u22642 发",894,372,13,C.green,700);
+  g.globalAlpha=1;
+}
+
+// ---------- scene 5: corruption (27-34) ----------
+function s5(x){
+  const a=fade(27.1,33.7,x);g.globalAlpha=a;
+  txt("步骤 4 \u2014 定值溢出污染哨兵数组的 length 字段",120,110,20,C.txt,600);
+  // sentinel header bytes
+  panel(220,160,560,120);
+  txt("哨兵头（污染前）：",236,196,14,C.dim);
+  const bytesB=["0x00","0x00","0x0F","0x6C","0xB0"];
+  bytesB.forEach((b,i)=>{g.fillStyle="#1c2430";rr(236+i*70,210,60,40,6);g.fill();
+    txt(b,266+i*70,236,14,C.txt,600,"center");});
+  txt("len = 1,048,560",236,262,13,C.dim);
+  // arrow
+  const fl=flash(x,1.2,0);
+  g.globalAlpha=a*(.4+.6*fl);
+  txt("\u2192  64 B 定值写落在这里",820,230,15,C.red,600);
+  g.globalAlpha=a;
+  panel(220,310,560,120);
+  txt("溢出后：",236,346,14,C.dim);
+  const bytesA=["0xA6","0x69","0x9A","0xA6","??"];
+  bytesA.forEach((b,i)=>{g.fillStyle=fl>0?"#3d1d21":"#1c2430";rr(236+i*70,360,60,40,6);g.fill();
+    txt(b,266+i*70,386,14,C.red,700,"center");});
+  txt("len = -1,503,028,570  (0xA6699AA6)",236,412,13,C.red,600);
+  // note
+  const na=clip(28.6,29.2,x);g.globalAlpha=a*na;
+  txt("图样每次运行完全一致 \u2014 定值写的铁证，而非随机崩溃",
+      W/2,470,15,C.dim,400,"center");
+  g.globalAlpha=1;
+}
+
+// ---------- scene 6: crash + hs_err (34-40.5) ----------
+function s6(x){
+  const a=fade(34.1,40.2,x);g.globalAlpha=a;
+  txt("步骤 5 \u2014 length 被污染 \u2192 主动越界读 \u2192 SIGSEGV",120,110,20,C.txt,600);
+  // terminal-ish hs_err card (real log content, kept in English)
+  panel(160,150,960,300);
+  const lines=[
+    ["#  A fatal error has been detected by the Java Runtime Environment:",C.dim],
+    ["#",C.dim],
+    ["#  EXCEPTION_ACCESS_VIOLATION (0xc0000005) at pc=0x000001e5724f0a3a, pid=13084, tid=13108",C.red],
+    ["#",C.dim],
+    ["#  Java VM: OpenJDK 64-Bit Server VM Zulu17.68+17-CA (17.0.20+8-LTS) ... g1 gc, windows-amd64",C.dim],
+    ["#  Problematic frame:",C.dim],
+    ["#  j  com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68",C.yellow],
+    ["#",C.dim],
+    ["#  An error report file with more information is saved as:",C.dim],
+    ["#  logs/hs_err_pid13084.log",C.txt],
+  ];
+  let shown=Math.floor(clip(34.6,38.6,x)*lines.length);
+  for(let i=0;i<shown;i++)txt(lines[i][0],180,190+i*26,13,lines[i][1],400);
+  const ja=clip(38.2,38.8,x);g.globalAlpha=a*ja;
+  txt("受害 JVM 进程已死亡 \u2014 端口 47470 实测关闭",W/2,490,17,C.red,700,"center");
+  g.globalAlpha=1;
+}
+
+// ---------- scene 7: verdict (40.5-46) ----------
+function s7(x){
+  const a=fade(40.6,45.7,x);g.globalAlpha=a;
+  g.strokeStyle=C.green;g.lineWidth=2.5;g.globalAlpha=a*(.6+.4*Math.sin(x*4));
+  rr(W/2-380,140,760,120,10);g.stroke();g.globalAlpha=a;
+  txt("*** TARGET DOWN ***",W/2,200,34,C.green,700,"center");
+  txt("HIT shot=1 row=1 \u00b7 len=1048560 \u2192 -1503028570 (0xA6699AA6) \u00b7 fire=82 ms",W/2,236,16,C.txt,400,"center");
+  panel(W/2-380,300,760,190);
+  txt("证据链：网络载荷 \u2192 HIT 回包 \u2192 JVM 死亡",W/2-350,340,15,C.txt,600);
+  txt("负对照（-XX:-UseBASE64Intrinsics）：存活 \u2014 因果闭环",W/2-350,370,15,C.dim);
+  txt("所有数字来自真实实测 \u2014 见仓库 evidence/ 目录",W/2-350,400,14,C.faint);
+  txt("github.com/AweiMC/Java4Shell-Deterministic-DoS-PoC",W/2-350,440,14,C.blue);
+  txt("仅限研究 / 负责任披露 \u2014 服务端只绑 127.0.0.1，实验条件",W/2,520,13,C.faint,400,"center");
+  g.globalAlpha=1;
+}
+
+// ---------- captions ----------
+const caps=[
+  [0,   "标题"],
+  [3.5, "G1 humongous 布局 + eager-reclaim 成洞"],
+  [11,  "触发串经 TCP 投递（仅单参 decode）"],
+  [17,  "dst 填洞；64B 定值写；跨界 32B"],
+  [27,  "哨兵 length 被污染：0xA6699AA6"],
+  [34,  "SIGSEGV + hs_err 取证"],
+  [40.5,"判决：TARGET DOWN（真实实测）"],
+];
+function caption(x){
+  let cur=null;for(const c of caps)if(x>=c[0])cur=c[1];
+  if(!cur)return;
+  g.fillStyle=C.line;g.fillRect(0,H-46,W,46);
+  txt("\u25B8 "+cur,24,H-16,15,C.dim,600);
+}
+
+// ---------- timeline ----------
+let time=0,playing=true,lastTs=null;
+function draw(ts){
+  if(lastTs===null)lastTs=ts;
+  const dt=Math.min(0.05,(ts-lastTs)/1000);lastTs=ts;
+  if(playing)time+=dt;
+  if(time>=DUR){time=0;}               // loop
+  document.getElementById("fill").style.width=(time/DUR*100)+"%";
+  document.getElementById("tlabel").textContent=time.toFixed(1)+"s";
+  bg();
+  s1(time);s2(time);s3(time);s4(time);s5(time);s6(time);s7(time);
+  caption(time);
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+document.getElementById("btn").onclick=()=>{time=0;playing=true;};
+document.getElementById("track").onclick=(e)=>{
+  const r=e.currentTarget.getBoundingClientRect();
+  time=Math.max(0,Math.min(DUR,(e.clientX-r.left)/r.width*DUR));
+};
+document.addEventListener("keydown",e=>{
+  if(e.code==="Space"){e.preventDefault();playing=!playing;}
+});
+</script>
+</body>
+</html>

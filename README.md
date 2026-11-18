@@ -22,7 +22,7 @@ The reference PoC for CVE-2026-114938 ([Pwned-test/cve-2026-114938-java17-PoC](h
 
 [![Attack mechanism animation](assets/demo-poster.png)](assets/demo-mechanism.mp4)
 
-▶ **46-second mechanism animation** ([assets/demo-mechanism.mp4](assets/demo-mechanism.mp4)): hole formation → trigger delivery → humongous dst fills the hole → 64 B fixed-value stores crossing the region boundary by 32 B → sentinel length corruption (`0xA6699AA6`) → SIGSEGV + hs_err → verdict. All numbers are from the real measured runs in `evidence/`. Interactive version: [docs/attack-visualization.html](docs/attack-visualization.html) (open in a browser, Space = pause).
+▶ **46-second mechanism animation** ([assets/demo-mechanism.mp4](assets/demo-mechanism.mp4) · 中文版: [assets/demo-mechanism.zh-CN.mp4](assets/demo-mechanism.zh-CN.mp4)): hole formation → trigger delivery → humongous dst fills the hole → 64 B fixed-value stores crossing the region boundary by 32 B → sentinel length corruption (`0xA6699AA6`) → SIGSEGV + hs_err → verdict. All numbers are from the real measured runs in `evidence/`. Interactive versions: [docs/attack-visualization.html](docs/attack-visualization.html) (EN) · [docs/attack-visualization.zh-CN.html](docs/attack-visualization.zh-CN.html) (中文) — open in a browser, Space = pause.
 
 ## Requirements
 
