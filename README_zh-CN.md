@@ -19,6 +19,12 @@ CVE-2026-114938 的官方参考 PoC（[Pwned-test/cve-2026-114938-java17-PoC](ht
 - **GC 适用范围**：越界写本身与 GC 无关，但确定性几何**仅限 G1**（humongous
   region 对齐 + eager-reclaim 成洞）。Serial/Parallel GC 下本配方退化为概率性。
 
+## 演示
+
+[![攻击机制动画](assets/demo-poster.png)](assets/demo-mechanism.mp4)
+
+▶ **46 秒机制动画**（[assets/demo-mechanism.mp4](assets/demo-mechanism.mp4)）：成洞 → 触发串投递 → humongous dst 填洞 → 64B 定值写跨 region 边界 32B → 哨兵 length 被污染（`0xA6699AA6`）→ SIGSEGV + hs_err → 判决。所有数字均来自 `evidence/` 中的真实实测。交互版：[docs/attack-visualization.html](docs/attack-visualization.html)（浏览器打开，空格 = 暂停）。
+
 ## 环境要求
 
 | 条件 | 说明 |
