@@ -14,15 +14,9 @@ The reference PoC for CVE-2026-114938 ([Pwned-test/cve-2026-114938-java17-PoC](h
 
 - **The only firing API is the single-argument `decode(byte[])`** — the entry point real applications actually use (HTTP Basic headers, tokens, upload fields) — executed **twice in a row** (shot → re-warm C2 → shot).
 - The trigger length (`2,796,161 = 64k+1`) is tuned so the decoder's internal destination buffer becomes a **region-aligned humongous object** that exactly fills a hole left by G1 eager-reclaim. The intrinsic's fixed 64-byte store then **deterministically** crosses the region boundary by 32 bytes into a sentinel array's header.
-- A corrupted array length field turns into a forced out-of-bounds read → **SIGSEGV + hs_err forensics**. No heap-layout lottery: **5/5 measured hits within ≤2 shots** (3 clean-layout runs + 2 release re-verifications, every one archived in `evidence/`; fire time 82–584 ms).
+- A corrupted array length field turns into a forced out-of-bounds read → **SIGSEGV + hs_err forensics**. No heap-layout lottery: **5/5 measured hits within ≤2 shots** (3 clean-layout runs + 2 release re-verifications; fire time 82–584 ms).
 - Causality is closed by a negative control: `-XX:-UseBASE64Intrinsics` → zero spill, victim survives.
 - **GC scope**: the OOB write itself is collector-independent, but the deterministic geometry is **G1-specific** (humongous region alignment + eager-reclaim holes). Under Serial/Parallel GC the recipe degrades to probabilistic.
-
-## Demo
-
-[![Attack mechanism animation](assets/demo-poster.png)](assets/demo-mechanism.mp4)
-
-▶ **46-second mechanism animation** ([assets/demo-mechanism.mp4](assets/demo-mechanism.mp4) · 中文版: [assets/demo-mechanism.zh-CN.mp4](assets/demo-mechanism.zh-CN.mp4)): hole formation → trigger delivery → humongous dst fills the hole → 64 B fixed-value stores crossing the region boundary by 32 B → sentinel length corruption (`0xA6699AA6`) → SIGSEGV + hs_err → verdict. All numbers are from the real measured runs in `evidence/`. Interactive versions: [docs/attack-visualization.html](docs/attack-visualization.html) (EN) · [docs/attack-visualization.zh-CN.html](docs/attack-visualization.zh-CN.html) (中文) — open in a browser, Space = pause.
 
 ## Requirements
 
@@ -75,13 +69,13 @@ Negative control (must survive):
 | run3 | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`, fire 219 ms |
 | run4 | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`, fire 138 ms |
 | Release E2E via `run-*.sh` | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`, fire 82 ms |
-| Release E2E via `run-*.bat` | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`, fire 102 ms (archived: `evidence/e2e-bat-client-output.txt`) |
+| Release E2E via `run-*.bat` | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`, fire 102 ms |
 | Negative control | survived | `probe=none`, `SURVIVED shots=2`, client exit 2 |
 | Fixed-build control (Zulu 17.0.21.1) | survived | probe `oob=0`, E2E `SURVIVED` — see §6.4 of the report |
 
 **5/5 positive runs hit within ≤2 shots; negative and fixed-build controls both survive.**
 
-Evidence files in [`evidence/`](evidence/): probe output, client/server console transcripts, `hs_err_victim-SIGSEGV.log` (`Problematic frame: j com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68`), negative-control transcripts.
+Measured results and forensics are summarized in [REPORT.md](REPORT.md) / [REPORT_zh-CN.md](REPORT_zh-CN.md). Raw run logs are generated locally under `logs/` (gitignored).
 
 ## Repository layout
 
@@ -91,7 +85,6 @@ build.sh / build.bat      compile (pure JDK, no dependencies)
 run-server.sh|.bat        victim server (127.0.0.1:47470)
 run-server-safe.sh|.bat   negative control (-XX:-UseBASE64Intrinsics)
 run-client.sh|.bat        attack client
-evidence/                 probe + E2E transcripts + hs_err forensics + negative control
 REPORT.md                 full technical report (EN) / REPORT_zh-CN.md (中文)
 ```
 

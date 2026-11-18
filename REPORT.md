@@ -132,7 +132,6 @@ Pure JDK, no third-party dependencies
 | `src/com/aweimc/j4shell/Main.java` | entry point + standalone bounded `probe` |
 | `build.sh` / `build.bat` | compile |
 | `run-server.sh|.bat` / `run-server-safe.sh|.bat` / `run-client.sh|.bat` | one-shot scripts (path-independent) |
-| `evidence/` | probe output, E2E transcripts, hs_err forensics, negative-control transcripts |
 
 ---
 
@@ -196,16 +195,16 @@ Numbers match the reference PoC exactly (62 bytes, coordinates `[98..160)`).
 | run2 (first clean layout) | Zulu 17.0.20+8 | `HIT shot=2 row=2 len=1048560→-1503028570 (0xA6699AA6)` | **TARGET DOWN**, port verified closed | fire 584 ms |
 | run3 | same | `HIT shot=1 row=1 ... (0xA6699AA6)` | **TARGET DOWN** | fire 219 ms |
 | run4 | same | `HIT shot=1 row=1 ... (0xA6699AA6)` | **TARGET DOWN** | fire 138 ms |
-| Release E2E (`run-*.bat`, archived) | same | `HIT shot=1 row=1 ... (0xA6699AA6)` | **TARGET DOWN** | fire 102 ms (`evidence/e2e-bat-client-output.txt`) |
+| Release E2E (`run-*.bat`) | same | `HIT shot=1 row=1 ... (0xA6699AA6)` | **TARGET DOWN** | fire 102 ms |
 
 **5/5 deterministic hits within ≤2 shots: 3 clean-layout runs + 2 release
 re-verifications (`run-*.sh` above, `run-*.bat` below), victim JVM dead every time.**
 
 Final release-recipe verification (`com.aweimc.j4shell` package, run-server.sh + run-client.sh):
 `HIT shot=1 row=1 len=1048560→-1503028570 (0xA6699AA6)` → **TARGET DOWN**, fire 82 ms;
-forensics archived at `evidence/hs_err_victim-SIGSEGV.log`:
+hs_err forensics show:
 `Problematic frame: j com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68`.
-Evidence files are in `evidence/` (probe output, E2E client/server transcripts, hs_err, negative control).
+Raw run logs are generated locally under `logs/` (gitignored); results are summarized here.
 
 The corrupted value `-1503028570 = 0xA6699AA6` is this build's lookup-table
 residual pattern — byte sequence **A6 69 9A A6** on this machine (not a clean
@@ -216,7 +215,7 @@ deterministic fixed-value write proven, not a random crash.
 
 ### 6.3 Crash forensics (hs_err)
 
-`evidence/hs_err_victim-SIGSEGV.log`:
+Recorded hs_err excerpt:
 
 ```
 EXCEPTION_ACCESS_VIOLATION (0xc0000005)
@@ -231,8 +230,8 @@ OOB write → length corruption (HIT reply delivered to client first) → forced
 
 Note: the very first experiment (layout polluted by humongous noise) also killed the
 server with a single network payload, but the crash surfaced in the GC thread
-(eager-reclaim dereferencing a corrupted dead object header; faulting address
-`0x000001bd699aa671` embeds the 0x9A9A699A signature) — side evidence that even
+(the eager-reclaim dereference faulted on a dead object header whose bytes
+embed the 0x9A9A699A signature) — side evidence that even
 without a tuned hole layout, heap corruption under this humongous geometry is
 sufficient to kill the JVM.
 
@@ -243,8 +242,7 @@ sufficient to kill the JVM.
 | A | `-XX:-UseBASE64Intrinsics` (Zulu 17.0.20+8) | `spill=none (oob=0B)` | `SURVIVED shots=2`, server alive, client exit code 2 ✅ |
 | B | **fixed build Zulu 17.0.21.1+2** | `spill=none (oob=0B)`, `probe=none` | `SURVIVED shots=2`, server alive, graceful shutdown ✅ |
 
-Control B details (`evidence/fixed-jdk-probe-output.txt`, `evidence/fixed-jdk-e2e-server.txt`,
-`evidence/fixed-jdk-e2e-client.txt`), Zulu 17.70+201-CA (build 17.0.21.1+2-LTS):
+Control B details (Zulu 17.70+201-CA, build 17.0.21.1+2-LTS):
 
 ```
 java = 17.0.21.1

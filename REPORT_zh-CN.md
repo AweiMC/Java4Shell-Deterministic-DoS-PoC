@@ -127,7 +127,7 @@ GC 施压也必须用**非 humongous** 小块（64KB < 512KB 阈值）—— 这
 ## 5. 复现步骤
 
 ```bat
-cd /d D:\AIAGENT\CVE_TEST\J4Shell_DoS
+cd /d <仓库根目录>
 build.bat
 
 :: 终端 A —— 受害服务端（未修复 JDK 17 + AVX-512 VBMI 机器）
@@ -181,15 +181,15 @@ REPRODUCED — runtime has the layer-1 out-of-bounds write
 | run2（干净布局首测） | Zulu 17.0.20+8 | `HIT shot=2 row=2 len=1048560→-1503028570 (0xA6699AA6)` | **TARGET DOWN**，端口关闭实证 | fire 584ms / 全程 1.09s |
 | run3 | 同上 | `HIT shot=1 row=1 len=1048560→-1503028570 (0xA6699AA6)` | **TARGET DOWN** | fire 219ms |
 | run4 | 同上 | `HIT shot=1 row=1 len=1048560→-1503028570 (0xA6699AA6)` | **TARGET DOWN** | fire 138ms |
-| 发布版 E2E（bat 脚本，已存档） | 同上 | `HIT shot=1 row=1 len=1048560→-1503028570 (0xA6699AA6)` | **TARGET DOWN** | fire 102ms（`evidence/e2e-bat-client-output.txt`） |
+| 发布版 E2E（bat 脚本） | 同上 | `HIT shot=1 row=1 len=1048560→-1503028570 (0xA6699AA6)` | **TARGET DOWN** | fire 102ms |
 
 **5/5 确定性命中（≤2 发内）：3 次干净布局 + 2 次发布版复核（上表 bat 一行 +
 下方 sh 脚本复核），受害 JVM 每次死亡。**
 
 一键脚本端到端验证（最终发布版，`com.aweimc.j4shell` 包，run-server.sh + run-client.sh）：
 `HIT shot=1 row=1 len=1048560→-1503028570 (0xA6699AA6)` → **TARGET DOWN**，fire 82ms，
-取证 `evidence/hs_err_victim-SIGSEGV.log`：`Problematic frame: j com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68`。
-证据文件归档在 `evidence/`（probe 输出、E2E 客户端/服务端实录、hs_err、负对照实录）。
+hs_err 取证：`Problematic frame: j com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68`。
+原始运行日志在本地 `logs/` 目录生成（已 gitignore），结果摘要如上。
 
 污染值 `-1503028570 = 0xA6699AA6` 是该 build 的查找表残值图样——本机字节序为
 **A6 69 9A A6**（并非干净的 0x9A/0x69 交替；跨 build 不同，如 Temurin 21.0.13
@@ -198,7 +198,7 @@ REPRODUCED — runtime has the layer-1 out-of-bounds write
 
 ### 6.3 崩溃取证（hs_err）
 
-最终发布版取证 `evidence/hs_err_victim-SIGSEGV.log`：
+实测 hs_err 摘录：
 
 ```
 EXCEPTION_ACCESS_VIOLATION (0xc0000005)
@@ -211,8 +211,8 @@ j  com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68
 客户端）→ 强制越界读 → SIGSEGV → hs_err 落盘 → 端口关闭（客户端独立验证）**。
 
 另：初版（布局含 humongous 噪声）第 1 轮同样一发网络载荷打死服务端，但
-崩溃发生在 GC 线程（eager-reclaim 读到被污染的死对象头，故障地址
-`0x000001bd699aa671` 内嵌 0x9A9A699A 签名）—— 侧面证明即使不配洞，
+崩溃发生在 GC 线程（eager-reclaim 读到被污染的死对象头，故障地址字节内嵌
+0x9A9A699A 签名）—— 侧面证明即使不配洞，
 该配方在 humongous 几何下的堆破坏也足以击杀 JVM。
 
 ### 6.4 对照组（负对照 + 修复版）
@@ -222,9 +222,7 @@ j  com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68
 | A | `-XX:-UseBASE64Intrinsics`（Zulu 17.0.20+8） | `spill=none (oob=0B)` | `SURVIVED shots=2`，服务端存活，客户端退出码 2 ✅ |
 | B | **修复版 Zulu 17.0.21.1+2** | `spill=none (oob=0B)`、`probe=none` | `SURVIVED shots=2`，服务端存活，优雅退出 ✅ |
 
-对照 B 细节（`evidence/fixed-jdk-probe-output.txt`、
-`evidence/fixed-jdk-e2e-server.txt`、`evidence/fixed-jdk-e2e-client.txt`），
-Zulu 17.70+201-CA (build 17.0.21.1+2-LTS)：
+对照 B 细节（Zulu 17.70+201-CA，build 17.0.21.1+2-LTS）：
 
 ```
 java = 17.0.21.1

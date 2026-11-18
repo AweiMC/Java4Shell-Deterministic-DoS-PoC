@@ -2,8 +2,9 @@
 out/
 sources.txt
 
-# run logs (evidence/ holds the curated forensics)
+# run logs / local forensics (not part of the source distribution)
 logs/
+evidence/
 
 # local runtime dirs
 .local/

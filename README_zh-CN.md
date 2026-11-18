@@ -14,16 +14,10 @@ CVE-2026-114938 的官方参考 PoC（[Pwned-test/cve-2026-114938-java17-PoC](ht
 
 - **唯一的射击 API 是单参 `decode(byte[])`** —— 真实应用最普遍的解码入口（HTTP Basic 头、token、上传字段）—— **连续执行两次**（射击 → 重装填 C2 → 再射击）。
 - 触发长度（`2,796,161 = 64k+1`）经过定制，使解码器内部目标缓冲区成为 **region 对齐的 humongous 对象**，恰好填进 G1 eager-reclaim 留下的洞。intrinsic 的 64 字节定值写于是**确定性**跨界 32 字节，打中洞后哨兵数组的对象头。
-- length 字段被污染后转为主动越界读 → **SIGSEGV + hs_err 取证**。没有堆布局抽奖：**实测 5/5 全部在 ≤2 发内命中**（3 次干净布局 + 2 次发布版复核，全部存档于 `evidence/`；单发耗时 82–584 ms）。
+- length 字段被污染后转为主动越界读 → **SIGSEGV + hs_err 取证**。没有堆布局抽奖：**实测 5/5 全部在 ≤2 发内命中**（3 次干净布局 + 2 次发布版复核；单发耗时 82–584 ms）。
 - 负对照闭环因果：`-XX:-UseBASE64Intrinsics` → 零溢出、受害端存活。
 - **GC 适用范围**：越界写本身与 GC 无关，但确定性几何**仅限 G1**（humongous
   region 对齐 + eager-reclaim 成洞）。Serial/Parallel GC 下本配方退化为概率性。
-
-## 演示
-
-[![攻击机制动画（中文版）](assets/demo-poster.zh-CN.png)](assets/demo-mechanism.zh-CN.mp4)
-
-▶ **46 秒机制动画**（中文版：[assets/demo-mechanism.zh-CN.mp4](assets/demo-mechanism.zh-CN.mp4) · English: [assets/demo-mechanism.mp4](assets/demo-mechanism.mp4)）：成洞 → 触发串投递 → humongous dst 填洞 → 64B 定值写跨 region 边界 32B → 哨兵 length 被污染（`0xA6699AA6`）→ SIGSEGV + hs_err → 判决。所有数字均来自 `evidence/` 中的真实实测（日志行保留英文原样）。交互版：[docs/attack-visualization.zh-CN.html](docs/attack-visualization.zh-CN.html)（中文）· [docs/attack-visualization.html](docs/attack-visualization.html)（EN）—— 浏览器打开，空格 = 暂停。
 
 ## 环境要求
 
@@ -76,13 +70,13 @@ java -cp out com.aweimc.j4shell.Main probe --len 129
 | run3 | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`，fire 219 ms |
 | run4 | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`，fire 138 ms |
 | 发布版 E2E（sh 脚本） | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`，fire 82 ms |
-| 发布版 E2E（bat 脚本） | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`，fire 102 ms（存档：`evidence/e2e-bat-client-output.txt`） |
+| 发布版 E2E（bat 脚本） | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`，fire 102 ms |
 | 负对照 | 存活 | `probe=none`、`SURVIVED shots=2`，客户端退出码 2 |
 | 修复版对照（Zulu 17.0.21.1） | 存活 | probe `oob=0`，E2E `SURVIVED` —— 见报告 §6.4 |
 
 **正向 5/5 在 ≤2 发内命中；负对照与修复版对照均存活。**
 
-证据文件在 [`evidence/`](evidence/)：probe 输出、客户端/服务端控制台实录、`hs_err_victim-SIGSEGV.log`（`Problematic frame: j com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68`）、负对照实录。
+实测结果与取证摘要见 [REPORT_zh-CN.md](REPORT_zh-CN.md) / [REPORT.md](REPORT.md)。原始运行日志在本地 `logs/` 目录生成（已 gitignore）。
 
 ## 仓库结构
 
@@ -92,7 +86,6 @@ build.sh / build.bat      编译（纯 JDK，无第三方依赖）
 run-server.sh|.bat        受害服务端（127.0.0.1:47470）
 run-server-safe.sh|.bat   负对照（-XX:-UseBASE64Intrinsics）
 run-client.sh|.bat        攻击客户端
-evidence/                 probe + E2E 实录 + hs_err 取证 + 负对照
 REPORT_zh-CN.md           完整技术报告（中文）/ REPORT.md（English）
 ```
 
