@@ -14,6 +14,7 @@ The reference PoC for CVE-2026-114938 ([Pwned-test/cve-2026-114938-java17-PoC](h
 - The trigger length (`2,796,161 = 64k+1`) is tuned so the decoder's internal destination buffer becomes a **region-aligned humongous object** that exactly fills a hole left by G1 eager-reclaim. The intrinsic's fixed 64-byte store then **deterministically** crosses the region boundary by 32 bytes into a sentinel array's header.
 - A corrupted array length field turns into a forced out-of-bounds read → **SIGSEGV + hs_err forensics**. No heap-layout lottery: **3/3 measured hits within ≤2 shots** (fire time 82–584 ms).
 - Causality is closed by a negative control: `-XX:-UseBASE64Intrinsics` → zero spill, victim survives.
+- **GC scope**: the OOB write itself is collector-independent, but the deterministic geometry is **G1-specific** (humongous region alignment + eager-reclaim holes). Under Serial/Parallel GC the recipe degrades to probabilistic.
 
 ## Requirements
 

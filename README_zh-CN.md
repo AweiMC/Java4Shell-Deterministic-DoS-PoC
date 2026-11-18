@@ -14,6 +14,8 @@ CVE-2026-114938 的官方参考 PoC（[Pwned-test/cve-2026-114938-java17-PoC](ht
 - 触发长度（`2,796,161 = 64k+1`）经过定制，使解码器内部目标缓冲区成为 **region 对齐的 humongous 对象**，恰好填进 G1 eager-reclaim 留下的洞。intrinsic 的 64 字节定值写于是**确定性**跨界 32 字节，打中洞后哨兵数组的对象头。
 - length 字段被污染后转为主动越界读 → **SIGSEGV + hs_err 取证**。没有堆布局抽奖：**实测 3/3 全部在 ≤2 发内命中**（单发耗时 82–584 ms）。
 - 负对照闭环因果：`-XX:-UseBASE64Intrinsics` → 零溢出、受害端存活。
+- **GC 适用范围**：越界写本身与 GC 无关，但确定性几何**仅限 G1**（humongous
+  region 对齐 + eager-reclaim 成洞）。Serial/Parallel GC 下本配方退化为概率性。
 
 ## 环境要求
 

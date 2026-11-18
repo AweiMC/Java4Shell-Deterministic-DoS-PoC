@@ -261,6 +261,20 @@ Decode"的正确打开方式，也是官方单发演示之外的工程化补全�
    还是空闲 region 是概率性的 —— 本配方把命中概率从"10 万周期抽奖"
    提升为"每发必跨界的 32B 高价值写"，多发改决率的量化留待后续工作。
 
+**GC 适用范围**：漏洞本身与 GC 无关——intrinsic 越界写存在于 JIT 生成代码中，
+任何收集器下都能复现（层一溢出探测不受 GC 影响）。但**确定性配方仅限 G1**，
+依赖三项 G1 行为：(1) **humongous 对象**（≥ region 一半大小）分配在连续、
+region 对齐的地址上；(2) young GC 时的 **eager reclaim**（
+`G1EagerReclaimHumongousObjects`，默认开）会把死掉的 humongous 对象回收成
+可预测的"洞"，下一个 humongous 分配按地址顺序填入；(3) §3 的 region 粒度
+算术（dst 恰好 2 region + 尾差 32B → 必然跨界）。Serial/Parallel GC 没有
+humongous 概念、也没有 region 对齐分配，"每发确定性跨界 32B"的性质消失，
+溢出落点完全取决于分配器恰好把 dst 放哪——退化为纯概率事件。ZGC/Shenandoah
+虽是 region 式但分配/回收语义不同，§3 的几何未针对它们设计；
+`-XX:G1HeapRegionSize` 本身就是 G1 专属参数。对未条件化的 **G1** 应用，
+本配方的结构性结论仍然成立（humongous dst 恒 region 对齐）；在非 G1
+收集器上，本衍生相对基线抽奖没有任何确定性优势。
+
 **不改变已知的结构性结论**：Minecraft 原版/模组包线协议无可达解码面
 （此前实测：冷 JIT、异常吸收、双参 0 处、畸形包被 Netty 拒绝四层吸收），
 本配方不适用于真实 MC 客户端/服务端 —— 本 PoC 的受害端是**编排好的

@@ -278,6 +278,26 @@ the final verification hit on shot 1.
    crosses a 32-byte high-value boundary"; quantifying multi-shot rates on unconditioned
    apps is future work.
 
+**GC scope**: the vulnerability itself is collector-independent — the intrinsic
+out-of-bounds write lives in JIT-generated code and reproduces under any GC
+(the layer-1 spill probe passed regardless). The **deterministic recipe,
+however, is G1-specific**. It depends on three G1 behaviors: (1) **humongous
+objects** (≥ 50% region size) allocated into contiguous region-aligned
+addresses; (2) **eager reclaim** of dead humongous objects at young GC
+(`G1EagerReclaimHumongousObjects`, default on), which leaves predictable
+holes the next humongous allocation fills in FIFO address order; (3) the
+region-granular arithmetic in §3 (dst exactly 2 regions with a 32-byte tail
+→ guaranteed boundary crossing). Under Serial/Parallel GC there is no
+humongous concept and no region-aligned placement, so the "every shot
+deterministically crosses 32 bytes" property evaporates — the spill lands
+wherever the allocator happened to place dst, i.e. fully probabilistic.
+ZGC/Shenandoah are region-based but with different allocation/reclaim
+semantics; the §3 geometry was not designed for them. `-XX:G1HeapRegionSize`
+is itself a G1-only flag. On unconditioned **G1** applications the recipe's
+structural claim still holds (humongous dst is always region-aligned); on
+non-G1 collectors this derivative offers no determinism advantage over the
+baseline lottery.
+
 **Structural conclusions from prior work remain**: vanilla/modded Minecraft has no
 reachable decode surface (cold JIT, exception absorption, zero two-arg call sites,
 malformed packets rejected by Netty) — this recipe does not apply to real MC
