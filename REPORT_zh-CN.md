@@ -22,7 +22,7 @@ Calif 于 2026-11-17 披露的 CVE-2026-114938（Java4Shell），其官方参考
 |---|---|---|
 | 射击 API | 双参 `decode([B[B)I` | **单参 `decode([B)[B` ×2** |
 | 观察面 | 应用自留的超大 dst 缓冲带 | humongous 洞布局 + 哨兵行 length 字段 |
-| 命中性 | 演示一次写 | **第 1~2 发确定性命中（本轮实测 3/3）** |
+| 命中性 | 演示一次写 | **第 1~2 发确定性命中（实测 5/5：3 次干净布局 + 2 次发布版复核）** |
 | 结果 | 角色 bit 翻转演示 | **受害服务端 JVM 进程死亡（SIGSEGV + hs_err）** |
 | 交付形态 | 单机自测 | **纯 Java Client → Server 网络攻击拓扑** |
 
@@ -181,16 +181,20 @@ REPRODUCED — runtime has the layer-1 out-of-bounds write
 | run2（干净布局首测） | Zulu 17.0.20+8 | `HIT shot=2 row=2 len=1048560→-1503028570 (0xA6699AA6)` | **TARGET DOWN**，端口关闭实证 | fire 584ms / 全程 1.09s |
 | run3 | 同上 | `HIT shot=1 row=1 len=1048560→-1503028570 (0xA6699AA6)` | **TARGET DOWN** | fire 219ms |
 | run4 | 同上 | `HIT shot=1 row=1 len=1048560→-1503028570 (0xA6699AA6)` | **TARGET DOWN** | fire 138ms |
+| 发布版 E2E（bat 脚本，已存档） | 同上 | `HIT shot=1 row=1 len=1048560→-1503028570 (0xA6699AA6)` | **TARGET DOWN** | fire 102ms（`evidence/e2e-bat-client-output.txt`） |
 
-**干净布局版 3/3 全部命中（≤2 发内），受害 JVM 进程死亡。**
+**5/5 确定性命中（≤2 发内）：3 次干净布局 + 2 次发布版复核（上表 bat 一行 +
+下方 sh 脚本复核），受害 JVM 每次死亡。**
 
 一键脚本端到端验证（最终发布版，`com.aweimc.j4shell` 包，run-server.sh + run-client.sh）：
 `HIT shot=1 row=1 len=1048560→-1503028570 (0xA6699AA6)` → **TARGET DOWN**，fire 82ms，
 取证 `evidence/hs_err_victim-SIGSEGV.log`：`Problematic frame: j com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68`。
 证据文件归档在 `evidence/`（probe 输出、E2E 客户端/服务端实录、hs_err、负对照实录）。
 
-污染值 `-1503028570 = 0xA6699AA6` 是该 intrinsic 的定值污染签名
-（0x9A/0x69 交替），全部轮次完全一致 —— 定值写实锤，非随机崩溃。
+污染值 `-1503028570 = 0xA6699AA6` 是该 build 的查找表残值图样——本机字节序为
+**A6 69 9A A6**（并非干净的 0x9A/0x69 交替；跨 build 不同，如 Temurin 21.0.13
+据称呈 9A 69 …）。真正要证明的是**跨输入不变性**：该图样在全部实测轮次中
+与载荷尾部形态无关、完全一致 —— 定值写实锤，非随机崩溃。
 
 ### 6.3 崩溃取证（hs_err）
 
@@ -211,11 +215,26 @@ j  com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68
 `0x000001bd699aa671` 内嵌 0x9A9A699A 签名）—— 侧面证明即使不配洞，
 该配方在 humongous 几何下的堆破坏也足以击杀 JVM。
 
-### 6.4 负对照（因果闭环）
+### 6.4 对照组（负对照 + 修复版）
 
 | 对照 | 服务端配置 | 自检 | 结果 |
 |---|---|---|---|
-| A | `-XX:-UseBASE64Intrinsics` | `spill=none (oob=0B)` | `SURVIVED shots=2`，服务端存活，客户端退出码 2 ✅ |
+| A | `-XX:-UseBASE64Intrinsics`（Zulu 17.0.20+8） | `spill=none (oob=0B)` | `SURVIVED shots=2`，服务端存活，客户端退出码 2 ✅ |
+| B | **修复版 Zulu 17.0.21.1+2** | `spill=none (oob=0B)`、`probe=none` | `SURVIVED shots=2`，服务端存活，优雅退出 ✅ |
+
+对照 B 细节（`evidence/fixed-jdk-probe-output.txt`、
+`evidence/fixed-jdk-e2e-server.txt`、`evidence/fixed-jdk-e2e-client.txt`），
+Zulu 17.70+201-CA (build 17.0.21.1+2-LTS)：
+
+```
+java = 17.0.21.1
+len=129 logicalOut=98 spill=[-1..0) oob=0B
+none - runtime patched / intrinsics off / no AVX-512 VBMI
+```
+
+层一溢出消失，且完整网络 E2E 打完后修复版服务端仍然存活——
+补丁有效性从 probe 到 E2E 两层闭环验证。客户端开火前独立告警
+`server layer-1 self-check shows NO spill - runtime patched or intrinsics off`。
 
 同一触发串、同一几何、同一流程，仅关 intrinsic 即完全不命中 —— 越界写
 与 JVM 死亡的因果关系闭环。
@@ -237,8 +256,8 @@ j  com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68
 > 环境检测；攻击路径全程单参。
 
 - run2：shot 1 未命中（dst 落点受初版布局残差影响），**shot 2 命中** ——
-  补射机制（dst1 死亡 → eager-reclaim 重新成洞 → 重装填 C2）提供了第二次
-  确定性机会；
+  【假说，尚未插桩验证】补射机制（dst1 死亡 → eager-reclaim 重新成洞 →
+  重装填 C2）提供了第二次确定性机会，该解释成立与否需堆插桩证实；
 - run3/run4：shot 1 首发即命中。
 
 单参双 Decode 配方本身还有一层结构意义：intrinsic 每编译周期只有一发
@@ -252,7 +271,10 @@ Decode"的正确打开方式，也是官方单发演示之外的工程化补全�
 
 **成立的前提**（本 PoC 的实验条件）：
 
-1. 未修复 JDK 17 线（17.0.6–17.0.20）/ Java 21 修复前构建，x86-64 + AVX-512 VBMI；
+1. 未修复的 Java 17 线——**全部 ≤ 17.0.21 的构建**（独立矩阵实测：
+   Temurin 17.0.21+9 仍可复现，`changedBeyondLogical=62`；plain 17.0.21 不存在
+   "已修复"状态，修复版是 **17.0.21.1**。区间*下限*据公告声称、未经独立实测）/
+   Java 21 修复前线（≤ 21.0.13，修复版 21.0.13.1），x86-64 + AVX-512 VBMI；
 2. 受害 JVM 的解码点：**单参 `decode(byte[])` 在热路径（C2 编译）上执行
    攻击者可控、长度可放大到 ~2.8MB 的输入**；
 3. 确定性命中依赖 humongous 洞布局 —— 本 PoC 在受害端 arm 阶段主动构造。

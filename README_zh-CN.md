@@ -1,5 +1,7 @@
 # Java4Shell-Deterministic-DoS-PoC
 
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) ![Java](https://img.shields.io/badge/Java-17+-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue.svg)
+
 **CVE-2026-114938（Java4Shell）衍生 PoC：两次连续单参 `decode(byte[])` + humongous 洞几何实现确定性拒绝服务。纯 JDK Client → Server。**
 
 [English](README.md) | [简体中文](README_zh-CN.md) · 完整分析：[REPORT_zh-CN.md](REPORT_zh-CN.md) | [REPORT.md](REPORT.md)
@@ -12,7 +14,7 @@ CVE-2026-114938 的官方参考 PoC（[Pwned-test/cve-2026-114938-java17-PoC](ht
 
 - **唯一的射击 API 是单参 `decode(byte[])`** —— 真实应用最普遍的解码入口（HTTP Basic 头、token、上传字段）—— **连续执行两次**（射击 → 重装填 C2 → 再射击）。
 - 触发长度（`2,796,161 = 64k+1`）经过定制，使解码器内部目标缓冲区成为 **region 对齐的 humongous 对象**，恰好填进 G1 eager-reclaim 留下的洞。intrinsic 的 64 字节定值写于是**确定性**跨界 32 字节，打中洞后哨兵数组的对象头。
-- length 字段被污染后转为主动越界读 → **SIGSEGV + hs_err 取证**。没有堆布局抽奖：**实测 3/3 全部在 ≤2 发内命中**（单发耗时 82–584 ms）。
+- length 字段被污染后转为主动越界读 → **SIGSEGV + hs_err 取证**。没有堆布局抽奖：**实测 5/5 全部在 ≤2 发内命中**（3 次干净布局 + 2 次发布版复核，全部存档于 `evidence/`；单发耗时 82–584 ms）。
 - 负对照闭环因果：`-XX:-UseBASE64Intrinsics` → 零溢出、受害端存活。
 - **GC 适用范围**：越界写本身与 GC 无关，但确定性几何**仅限 G1**（humongous
   region 对齐 + eager-reclaim 成洞）。Serial/Parallel GC 下本配方退化为概率性。
@@ -22,7 +24,7 @@ CVE-2026-114938 的官方参考 PoC（[Pwned-test/cve-2026-114938-java17-PoC](ht
 | 条件 | 说明 |
 |---|---|
 | x86-64 CPU 且支持 AVX-512 VBMI | Intel Ice Lake+ / AMD Zen 4+（`avx512f`、`avx512bw`、`avx512vbmi`、`bmi2`） |
-| 未修复运行时 | Java 17 线 17.0.6–17.0.20，或修复前的 Java 21/25 构建（修复版：17.0.21.1 / 21.0.13.1 / 25.0.5.1） |
+| 未修复运行时 | Java 17 线 **≤ 17.0.21**（区间下限据公告声称；17.0.21+9 经独立矩阵实测仍可复现——plain 17.0.21 不存在"已修复"状态），或修复前的 Java 21/25 构建。修复版：17.0.21.1 / 21.0.13.1 / 25.0.5.1 |
 | G1 GC | `-XX:G1HeapRegionSize=1m`（启动脚本已带） |
 | 实测环境 | Windows x86-64，Zulu JDK 17.0.20+8 |
 
@@ -64,10 +66,15 @@ java -cp out com.aweimc.j4shell.Main probe --len 129
 
 | 轮次 | 裁决 | 细节 |
 |---|---|---|
-| sh 脚本 E2E | **TARGET DOWN** | `HIT shot=1 row=1 len=1048560→-1503028570 (0xA6699AA6)`，fire 82 ms |
-| bat 脚本 E2E | **TARGET DOWN** | `HIT shot=2 ... (0xA6699AA6)`，fire 490 ms |
-| 此前两轮 | **TARGET DOWN** | 均 `HIT shot=1`，fire 138/219 ms |
+| run2（首个干净布局） | **TARGET DOWN** | `HIT shot=2 row=2 len=1048560→-1503028570 (0xA6699AA6)`，fire 584 ms |
+| run3 | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`，fire 219 ms |
+| run4 | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`，fire 138 ms |
+| 发布版 E2E（sh 脚本） | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`，fire 82 ms |
+| 发布版 E2E（bat 脚本） | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`，fire 102 ms（存档：`evidence/e2e-bat-client-output.txt`） |
 | 负对照 | 存活 | `probe=none`、`SURVIVED shots=2`，客户端退出码 2 |
+| 修复版对照（Zulu 17.0.21.1） | 存活 | probe `oob=0`，E2E `SURVIVED` —— 见报告 §6.4 |
+
+**正向 5/5 在 ≤2 发内命中；负对照与修复版对照均存活。**
 
 证据文件在 [`evidence/`](evidence/)：probe 输出、客户端/服务端控制台实录、`hs_err_victim-SIGSEGV.log`（`Problematic frame: j com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68`）、负对照实录。
 
@@ -95,4 +102,4 @@ REPORT_zh-CN.md           完整技术报告（中文）/ REPORT.md（English）
 
 ## 许可 / 署名
 
-研究代码 by [AweiMC](https://github.com/AweiMC)。漏洞由 Calif 于 2026-11-17 披露（"Java4Shell" / CVE-2026-114938）。
+本项目以 [MIT License](LICENSE) 发布。研究代码 by [AweiMC](https://github.com/AweiMC)。漏洞由 Calif 于 2026-11-17 披露（"Java4Shell" / CVE-2026-114938）。

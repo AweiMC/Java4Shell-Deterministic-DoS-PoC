@@ -1,0 +1,3 @@
+java = 17.0.21.1
+len=129 logicalOut=98 spill=[-1..0) oob=0B
+none - runtime patched / intrinsics off / no AVX-512 VBMI

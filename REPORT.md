@@ -26,7 +26,7 @@ community-known "100k-cycle heap-layout lottery" into a **deterministic hit**:
 |---|---|---|
 | Firing API | two-arg `decode([B[B)I` | **single-arg `decode([B)[B` ×2** |
 | Observation surface | app-provided oversized dst guard buffer | humongous hole layout + sentinel row length fields |
-| Hit rate | one-shot demonstration | **deterministic hit within ≤2 shots (measured 3/3 + final verification)** |
+| Hit rate | one-shot demonstration | **deterministic hit within ≤2 shots (measured 5/5: 3 clean-layout runs + 2 release re-verifications)** |
 | Outcome | role-bit flip demo | **victim server JVM process death (SIGSEGV + hs_err)** |
 | Delivery | single-JVM self-test | **pure-Java Client → Server network topology** |
 
@@ -196,8 +196,10 @@ Numbers match the reference PoC exactly (62 bytes, coordinates `[98..160)`).
 | run2 (first clean layout) | Zulu 17.0.20+8 | `HIT shot=2 row=2 len=1048560→-1503028570 (0xA6699AA6)` | **TARGET DOWN**, port verified closed | fire 584 ms |
 | run3 | same | `HIT shot=1 row=1 ... (0xA6699AA6)` | **TARGET DOWN** | fire 219 ms |
 | run4 | same | `HIT shot=1 row=1 ... (0xA6699AA6)` | **TARGET DOWN** | fire 138 ms |
+| Release E2E (`run-*.bat`, archived) | same | `HIT shot=1 row=1 ... (0xA6699AA6)` | **TARGET DOWN** | fire 102 ms (`evidence/e2e-bat-client-output.txt`) |
 
-**Clean-layout: 3/3 deterministic hits (within ≤2 shots), victim JVM dead.**
+**5/5 deterministic hits within ≤2 shots: 3 clean-layout runs + 2 release
+re-verifications (`run-*.sh` above, `run-*.bat` below), victim JVM dead every time.**
 
 Final release-recipe verification (`com.aweimc.j4shell` package, run-server.sh + run-client.sh):
 `HIT shot=1 row=1 len=1048560→-1503028570 (0xA6699AA6)` → **TARGET DOWN**, fire 82 ms;
@@ -205,9 +207,12 @@ forensics archived at `evidence/hs_err_victim-SIGSEGV.log`:
 `Problematic frame: j com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68`.
 Evidence files are in `evidence/` (probe output, E2E client/server transcripts, hs_err, negative control).
 
-The corrupted value `-1503028570 = 0xA6699AA6` is the intrinsic's fixed-value pollution
-signature (alternating 0x9A/0x69), identical across all runs — fixed-value write proven,
-not a random crash.
+The corrupted value `-1503028570 = 0xA6699AA6` is this build's lookup-table
+residual pattern — byte sequence **A6 69 9A A6** on this machine (not a clean
+0x9A/0x69 alternation; other builds differ, e.g. Temurin 21.0.13 reportedly
+shows 9A 69 …). What matters is the **invariance across inputs**: the pattern
+is identical in every measured run regardless of payload tail shape —
+deterministic fixed-value write proven, not a random crash.
 
 ### 6.3 Crash forensics (hs_err)
 
@@ -231,12 +236,26 @@ server with a single network payload, but the crash surfaced in the GC thread
 without a tuned hole layout, heap corruption under this humongous geometry is
 sufficient to kill the JVM.
 
-### 6.4 Negative control (causality closed)
+### 6.4 Controls (negative + fixed build)
 
 | Control | Server config | Self-check | Result |
 |---|---|---|---|
-| A | `-XX:-UseBASE64Intrinsics` | `spill=none (oob=0B)` | `SURVIVED shots=2`, server alive, client exit code 2 ✅ |
+| A | `-XX:-UseBASE64Intrinsics` (Zulu 17.0.20+8) | `spill=none (oob=0B)` | `SURVIVED shots=2`, server alive, client exit code 2 ✅ |
+| B | **fixed build Zulu 17.0.21.1+2** | `spill=none (oob=0B)`, `probe=none` | `SURVIVED shots=2`, server alive, graceful shutdown ✅ |
 
+Control B details (`evidence/fixed-jdk-probe-output.txt`, `evidence/fixed-jdk-e2e-server.txt`,
+`evidence/fixed-jdk-e2e-client.txt`), Zulu 17.70+201-CA (build 17.0.21.1+2-LTS):
+
+```
+java = 17.0.21.1
+len=129 logicalOut=98 spill=[-1..0) oob=0B
+none - runtime patched / intrinsics off / no AVX-512 VBMI
+```
+
+Layer-1 spill gone **and** the full network E2E leaves the patched server alive —
+the patch is verified end-to-end, not just at the probe level. Client independently
+warned `server layer-1 self-check shows NO spill - runtime patched or intrinsics off;
+attack will not work` before firing.
 Same trigger, same geometry, same flow — only the intrinsic disabled, and nothing hits.
 Causality between the OOB write and the JVM death is closed.
 
@@ -257,9 +276,11 @@ before a second shot**. This PoC turns "fill → fire → re-fill → re-fire" i
 sequence inside `fire()` — the correct way to chain two decodes, beyond the
 reference PoC's single-shot demo.
 
-Measured: run2 hit on shot 2 (after the re-warm provided a second deterministic
-opportunity once dst1 died and was eager-reclaimed back into a hole); run3, run4 and
-the final verification hit on shot 1.
+Measured: run2 hit on shot 2. **Hypothesis (not yet instrumented/verified)**:
+after dst1 died, eager reclaim returned its regions to the free list and the
+re-warm provided a second deterministic opportunity — this explains the
+shot-2 hit but has not been confirmed with heap instrumentation. run3, run4
+and both release re-verifications hit on shot 1.
 
 ---
 
@@ -267,7 +288,11 @@ the final verification hit on shot 1.
 
 **Prerequisites** (this PoC's lab conditions):
 
-1. Unpatched Java 17 line (17.0.6–17.0.20) / pre-fix Java 21 builds, x86-64 + AVX-512 VBMI;
+1. Unpatched Java 17 line — **all builds ≤ 17.0.21** (independent matrix test:
+   Temurin 17.0.21+9 still reproduces, `changedBeyondLogical=62`; plain 17.0.21
+   has no "fixed" state, the fixed build is **17.0.21.1**. The *lower* bound of
+   the affected range is per the advisory, not independently verified) /
+   pre-fix Java 21 line (≤ 21.0.13, fixed 21.0.13.1), x86-64 + AVX-512 VBMI;
 2. Victim decode point: **single-arg `decode(byte[])` on a hot (C2-compiled) path with
    attacker-controlled input that can be scaled to ~2.8MB**;
 3. The deterministic hit requires the humongous hole layout, actively constructed by the

@@ -1,5 +1,7 @@
 # Java4Shell-Deterministic-DoS-PoC
 
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg) ![Java](https://img.shields.io/badge/Java-17+-orange.svg) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue.svg)
+
 **CVE-2026-114938 (Java4Shell) derivative: deterministic denial-of-service via two consecutive single-argument `decode(byte[])` calls + humongous hole geometry. Pure-JDK Client → Server PoC.**
 
 [English](README.md) | [简体中文](README_zh-CN.md) · Full analysis: [REPORT.md](REPORT.md) | [REPORT_zh-CN.md](REPORT_zh-CN.md)
@@ -12,7 +14,7 @@ The reference PoC for CVE-2026-114938 ([Pwned-test/cve-2026-114938-java17-PoC](h
 
 - **The only firing API is the single-argument `decode(byte[])`** — the entry point real applications actually use (HTTP Basic headers, tokens, upload fields) — executed **twice in a row** (shot → re-warm C2 → shot).
 - The trigger length (`2,796,161 = 64k+1`) is tuned so the decoder's internal destination buffer becomes a **region-aligned humongous object** that exactly fills a hole left by G1 eager-reclaim. The intrinsic's fixed 64-byte store then **deterministically** crosses the region boundary by 32 bytes into a sentinel array's header.
-- A corrupted array length field turns into a forced out-of-bounds read → **SIGSEGV + hs_err forensics**. No heap-layout lottery: **3/3 measured hits within ≤2 shots** (fire time 82–584 ms).
+- A corrupted array length field turns into a forced out-of-bounds read → **SIGSEGV + hs_err forensics**. No heap-layout lottery: **5/5 measured hits within ≤2 shots** (3 clean-layout runs + 2 release re-verifications, every one archived in `evidence/`; fire time 82–584 ms).
 - Causality is closed by a negative control: `-XX:-UseBASE64Intrinsics` → zero spill, victim survives.
 - **GC scope**: the OOB write itself is collector-independent, but the deterministic geometry is **G1-specific** (humongous region alignment + eager-reclaim holes). Under Serial/Parallel GC the recipe degrades to probabilistic.
 
@@ -21,7 +23,7 @@ The reference PoC for CVE-2026-114938 ([Pwned-test/cve-2026-114938-java17-PoC](h
 | Requirement | Notes |
 |---|---|
 | x86-64 CPU with AVX-512 VBMI | Intel Ice Lake+ / AMD Zen 4+ (`avx512f`, `avx512bw`, `avx512vbmi`, `bmi2`) |
-| Unpatched runtime | Java 17 line 17.0.6–17.0.20, or pre-fix Java 21/25 builds (fixed: 17.0.21.1 / 21.0.13.1 / 25.0.5.1) |
+| Unpatched runtime | Java 17 line **≤ 17.0.21** (per advisory; 17.0.21+9 independently confirmed still vulnerable — there is no "fixed" state at plain 17.0.21), or pre-fix Java 21/25 builds. Fixed builds: 17.0.21.1 / 21.0.13.1 / 25.0.5.1 |
 | G1 GC | `-XX:G1HeapRegionSize=1m` (set by the run scripts) |
 | Tested on | Windows x86-64, Zulu JDK 17.0.20+8 |
 
@@ -63,10 +65,15 @@ Negative control (must survive):
 
 | Run | Verdict | Detail |
 |---|---|---|
-| E2E via `run-*.sh` | **TARGET DOWN** | `HIT shot=1 row=1 len=1048560→-1503028570 (0xA6699AA6)`, fire 82 ms |
-| E2E via `run-*.bat` | **TARGET DOWN** | `HIT shot=2 ... (0xA6699AA6)`, fire 490 ms |
-| 2 earlier runs | **TARGET DOWN** | `HIT shot=1` both, fire 138/219 ms |
+| run2 (first clean layout) | **TARGET DOWN** | `HIT shot=2 row=2 len=1048560→-1503028570 (0xA6699AA6)`, fire 584 ms |
+| run3 | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`, fire 219 ms |
+| run4 | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`, fire 138 ms |
+| Release E2E via `run-*.sh` | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`, fire 82 ms |
+| Release E2E via `run-*.bat` | **TARGET DOWN** | `HIT shot=1 row=1 ... (0xA6699AA6)`, fire 102 ms (archived: `evidence/e2e-bat-client-output.txt`) |
 | Negative control | survived | `probe=none`, `SURVIVED shots=2`, client exit 2 |
+| Fixed-build control (Zulu 17.0.21.1) | survived | probe `oob=0`, E2E `SURVIVED` — see §6.4 of the report |
+
+**5/5 positive runs hit within ≤2 shots; negative and fixed-build controls both survive.**
 
 Evidence files in [`evidence/`](evidence/): probe output, client/server console transcripts, `hs_err_victim-SIGSEGV.log` (`Problematic frame: j com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68`), negative-control transcripts.
 
@@ -94,4 +101,4 @@ Upgrade to 17.0.21.1+ / 21.0.13.1+ / 25.0.5.1+ (fixed builds carry the `.1` suff
 
 ## License / attribution
 
-Research code by [AweiMC](https://github.com/AweiMC). Vulnerability originally disclosed by Calif (2026-11-17) as "Java4Shell" / CVE-2026-114938.
+Released under the [MIT License](LICENSE). Research code by [AweiMC](https://github.com/AweiMC). Vulnerability originally disclosed by Calif (2026-11-17) as "Java4Shell" / CVE-2026-114938.
