@@ -230,6 +230,12 @@ j  com.aweimc.j4shell.DualDecodeVictim.forceCrash(II)V+68
 （溢出留在 8KB 缓冲带内，仅作环境检测），不参与攻击。装填（warmDecode）
 同样只用单参 decode。
 
+> **出处归属**：双参 `decode(byte[], byte[])` + 超大目标数组来观察越界写的
+> 技术**参考自官方 PoC**
+> （[Pwned-test/cve-2026-114938-java17-PoC](https://github.com/Pwned-test/cve-2026-114938-java17-PoC)），
+> 本项目在其基础上加了 8KB 有界缓冲带使探测不伤堆。该双参用法仅用于
+> 环境检测；攻击路径全程单参。
+
 - run2：shot 1 未命中（dst 落点受初版布局残差影响），**shot 2 命中** ——
   补射机制（dst1 死亡 → eager-reclaim 重新成洞 → 重装填 C2）提供了第二次
   确定性机会；

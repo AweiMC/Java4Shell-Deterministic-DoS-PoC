@@ -72,6 +72,8 @@ public final class DualDecodeVictim {
         // Layer-1 self-check (bounded): uses len=129 only (non-humongous allocations, so the
         // humongous layout stays untouched). The two-arg overload serves purely as a DETECTOR
         // here - the spill stays inside an 8KB guard buffer and cannot touch the heap.
+        // Technique adapted from the reference PoC (github.com/Pwned-test/cve-2026-114938-java17-PoC),
+        // which observes the spill via two-arg decode with an oversized destination.
         // After the detector fires, decode0 is deoptimized and must be refilled.
         int oob = boundedSpillProbe();
         probed = oob > 0;

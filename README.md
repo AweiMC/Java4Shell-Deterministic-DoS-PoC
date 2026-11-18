@@ -8,7 +8,7 @@
 
 ## What this is
 
-The reference PoC for CVE-2026-114938 observes the out-of-bounds write through the **two-argument** `decode(byte[], byte[])` overload with an oversized destination buffer. This project removes that requirement:
+The reference PoC for CVE-2026-114938 ([Pwned-test/cve-2026-114938-java17-PoC](https://github.com/Pwned-test/cve-2026-114938-java17-PoC)) observes the out-of-bounds write through the **two-argument** `decode(byte[], byte[])` overload with an oversized destination buffer — this project's layer-1 detector borrows that technique (with a bounded guard buffer added). The attack itself removes the two-argument requirement:
 
 - **The only firing API is the single-argument `decode(byte[])`** — the entry point real applications actually use (HTTP Basic headers, tokens, upload fields) — executed **twice in a row** (shot → re-warm C2 → shot).
 - The trigger length (`2,796,161 = 64k+1`) is tuned so the decoder's internal destination buffer becomes a **region-aligned humongous object** that exactly fills a hole left by G1 eager-reclaim. The intrinsic's fixed 64-byte store then **deterministically** crosses the region boundary by 32 bytes into a sentinel array's header.

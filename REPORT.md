@@ -182,6 +182,13 @@ REPRODUCED - runtime has the layer-1 out-of-bounds write
 
 Numbers match the reference PoC exactly (62 bytes, coordinates `[98..160)`).
 
+> **Attribution**: the layer-1 observation technique — two-argument
+> `decode(byte[], byte[])` with an oversized destination buffer to expose the
+> fixed-value spill — is **adapted from the reference PoC**
+> ([Pwned-test/cve-2026-114938-java17-PoC](https://github.com/Pwned-test/cve-2026-114938-java17-PoC)),
+> with a bounded 8KB guard buffer added so the probe never touches the live heap.
+> It is used for environment detection only; the attack path is single-arg only.
+
 ### 6.2 Positive: Client → Server deterministic DoS
 
 | Run | Server | Client verdict | Result | Timing |
